@@ -1,0 +1,100 @@
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+import time
+from collections import deque
+from datetime import datetime
+
+PIXEL_TO_MM = 0.264  # 預設值
+
+diameters = deque(maxlen=100)
+times = deque(maxlen=100)
+
+def auto_calibrate():
+    global PIXEL_TO_MM
+    known_diameter_mm = float(input("請輸入標準圓的直徑 (mm): "))
+
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("❌ 無法開啟攝影機")
+        return False
+
+    print("🔍 將標準圓放在畫面中央，按 '1' 校正")
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("❌ 無法獲取影像")
+            break
+
+        cv2.imshow("Calibration", frame)
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('1'):
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1, 50, param1=100, param2=30, minRadius=10, maxRadius=300)
+            if circles is not None:
+                circles = np.uint16(np.around(circles))
+                max_diameter = max(i[2] * 2 for i in circles[0])
+                PIXEL_TO_MM = known_diameter_mm / max_diameter
+                print(f"✅ 校正完成: 1 像素 = {PIXEL_TO_MM:.5f} mm")
+            break
+    cap.release()
+    cv2.destroyAllWindows()
+
+def detect_circles():
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("❌ 無法開啟攝影機")
+        return
+
+    print("🎯 偵測圓形，按 'Q' 退出")
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("❌ 無法獲取影像")
+            break
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1, 50, param1=100, param2=30, minRadius=10, maxRadius=300)
+
+        if circles is not None:
+            circles = np.uint16(np.around(circles))
+            max_diameter = max(i[2] * 2 for i in circles[0])
+            max_diameter_mm = max_diameter * PIXEL_TO_MM
+            print(f"📏 最大圓直徑: {max_diameter_mm:.2f} mm")
+
+            times.append(time.strftime("%H:%M:%S"))
+            diameters.append(max_diameter_mm)
+
+            for i in circles[0]:
+                cv2.circle(frame, (i[0], i[1]), i[2], (255, 0, 255), 2)
+
+        cv2.imshow("Detected Circles", frame)
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+    # 儲存並顯示趨勢圖
+    plt.plot(times, diameters, color='red', label="Max Diameter")
+    plt.xlabel("Time")
+    plt.ylabel("Diameter (mm)")
+    plt.legend()
+    plt.savefig("trend.png")
+    print("📊 圖表已儲存為 trend.png，請手動查看")
+
+# 執行程式
+if __name__ == "__main__":
+    print("🔄 按 '1' 進行校正，校正後進行圓形偵測")
+
+    while True:
+        key = input("輸入 1 開始校正，q 退出: ")
+        if key == "1":
+            if auto_calibrate():
+                detect_circles()
+            break
+        elif key == "q":
+            break
